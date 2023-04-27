@@ -1,0 +1,156 @@
+import DStorage from '../abis/DStorage.json'
+import React, { Component } from 'react';
+import Navbar from './Navbar'
+import Main from './Main'
+//mport Web3 from 'web3';
+import './App.css';
+import {ethers} from "ethers";
+//import '@metamask/legacy-web3'
+
+
+//Declare IPFS
+const ipfsClient = require('ipfs-http-client')
+const ipfs = ipfsClient({host: 'ipfs.infura.io',port: 5001, protocol: 'https'})
+const provider = new ethers.providers.Web3Provider(window.ethereum)
+
+
+
+
+
+class App extends Component {
+
+  async componentWillMount() {
+    await this.loadWeb3()
+    await this.loadBlockchainData()
+  }
+
+  async loadWeb3() {
+    
+    await provider.send("eth_requestAccounts", []);
+    const signer = provider.getSigner()
+
+  }
+
+  async loadBlockchainData() {
+    //window.web3 = new Web3(window.web3.currentProvider)
+    const daiAddress = provider.getSigner().getAddress()
+    //await window.web3.currentProvider.enable();
+    const signer = provider.getSigner()
+    
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts'})
+    this.setState({account: accounts[0]})
+
+    const networkId = await window.ethereum.request({ method: 'net_version'})
+
+    const networkData = DStorage.networks[networkId]
+     
+    
+    if(networkData) {
+      // Assign contract
+      let dstorage = new ethers.Contract(daiAddress,DStorage.abi, signer)
+      
+        this.setState({dstorage})
+        console.log(dstorage)
+      const filesCount=await dstorage.fileCount();
+        
+    //   const filesCount = dstorage.fileCount()
+    //   this.setState({ filesCount })
+    //   for (var i = filesCount; i >= 1; i--) {
+    //     const file = await dstorage.files(i).call()
+    //     this.setState({
+    //       files: [...this.state.files, file]
+    //     })
+    //   }
+    // } else {
+    //   window.alert('DStorage contract not deployed to detected network.')
+     }
+       this.setState({loading: false})
+      
+  
+  }
+  // Get file from user
+  captureFile = event => {
+    event.preventDefault()
+
+    const file = event.target.files[0]
+    const reader = new window.FileReader()
+
+
+    reader.readAsArrayBuffer(file)
+    reader.onloadend = () => {
+      this.setState({
+        buffer: Buffer(reader.result),
+        type: file.type,
+        name: file.name
+      })
+      
+    };
+  }
+
+
+  //Upload File
+  uploadFile = description => {
+
+    console.log("submitting file...")
+    ipfs.add(this.state.buffer, (error, result) => {
+      console.log('IPFS result', result)
+
+      if(error){
+        console.error(error)
+        return
+      }
+
+      this.setState({ loading: true})
+
+      if(this.state.type === ''){
+         this.setState({type: 'none'})
+      }
+
+      
+      this.state.dstorage.uploadFile(result[0].hash, result[0].size, this.state.type, this.state.name, description)
+      provider.on("pending", (tx) => {
+        window.location.reload()
+      })
+      
+      this.setState({ loading: false, name: null, type: null})
+      
+      
+    })
+    
+  }
+
+  //Set states
+  constructor(props) {
+    super(props)
+    this.state = {
+      account:'',
+      dstorage: null,
+      files:[],
+      loading: false,
+      type: null,
+      name: null
+    }
+
+    //Bind functions
+    this.uploadFile = this.uploadFile.bind(this)
+    this.captureFile = this.captureFile.bind(this)
+  }
+
+  render() {
+    return (
+      <div>
+        <Navbar account={this.state.account} />
+        { this.state.loading
+          ? <div id="loader" className="text-center mt-5"><p>Loading...</p></div>
+          : <Main
+              files={this.state.files}
+              captureFile={this.captureFile}
+              uploadFile={this.uploadFile}
+            />
+        }
+      </div>
+    );
+  }
+}
+
+export default App;
